@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: sleepypod
+spec:
+  replicas: 135
+  selector:
+    name: sleepy
+  template:
+    metadata:
+      labels:
+        name: sleepy
+    spec:
+      containers:
+      - name: sleepycontainer1
+        image: saadali/sleepy:v0.2
+        resources:
+          limits:
+            cpu: "0.002"
+            memory: "4Mi"
+      - name: sleepycontainer2
+        image: saadali/sleepy:v0.2
+        resources:
+          limits:
+            cpu: "0.002"
+            memory: "4Mi"
+      - name: sleepycontainer3
+        image: saadali/sleepy:v0.2
+        resources:
+          limits:
+            cpu: "0.002"
+            memory: "4Mi"
+      - name: sleepycontainer4
+        image: saadali/sleepy:v0.2
+        resources:
+          limits:
+            cpu: "0.002"
+            memory: "4Mi"
+      - name: sleepycontainer5
+        image: saadali/sleepy:v0.2
+        resources:
+          limits:
+            cpu: "0.002"
+            memory: "4Mi"
+      - name: sleepycontainer6
+        image: saadali/sleepy:v0.2
+        resources:
+          limits:
+            cpu: "0.002"
+            memory: "4Mi"
+      - name: sleepycontainer7
+        image: saadali/sleepy:v0.2
+        resources:
+          limits:
+            cpu: "0.002"
+            memory: "4Mi"
+      - name: sleepycontainer8
+        image: saadali/sleepy:v0.2
+        resources:
+          limits:
+            cpu: "0.002"
+            memory: "4Mi"
+      - name: sleepycontainer9
+        image: saadali/sleepy:v0.2
+        resources:
+          limits:
+            cpu: "0.002"
+            memory: "4Mi"
+      - name: sleepycontainer10
+        image: saadali/sleepy:v0.2
+        resources:
+          limits:
+            cpu: "0.002"
+            memory: "4Mi"
+
