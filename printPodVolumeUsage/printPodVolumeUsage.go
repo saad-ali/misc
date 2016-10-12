@@ -46,7 +46,12 @@ func main() {
 func printPodVolumes(podsJSON map[string]interface{}) map[string]uint {
 	volumeCount := make(map[string]uint)
 
-	for _, pod := range podsJSON["items"].([]interface{}) {
+	items := podsJSON["items"]
+	if items == nil {
+		return volumeCount
+	}
+
+	for _, pod := range items.([]interface{}) {
 		//log.Println("POD:")
 		spec := pod.(map[string]interface{})["spec"]
 		if spec == nil {
@@ -58,13 +63,31 @@ func printPodVolumes(podsJSON map[string]interface{}) map[string]uint {
 		}
 		for _, volume := range volumes.([]interface{}) {
 			//log.Println("  Volume:")
-			for key, _ := range volume.(map[string]interface{}) {
+			for key, value := range volume.(map[string]interface{}) {
 				if key != "name" {
-					volumeCount[key]++
-					// log.Printf(
-					// 	"%v\r\n",
-					// 	key,
-					// )
+					if key != "persistentVolumeClaim" {
+						// Not PVC count and move on
+						volumeCount[key]++
+						continue
+					}
+
+					// PVC must be dereferenced
+					// fmt.Printf("PVC must be dereferenced\r\n")
+					namespace := ""
+					metadata := pod.(map[string]interface{})["metadata"]
+					if metadata != nil {
+						namespaceObj := metadata.(map[string]interface{})["namespace"]
+						if namespaceObj != nil {
+							namespace = namespaceObj.(string)
+						}
+					}
+
+					claimNameObj := value.(map[string]interface{})["claimName"]
+					if claimNameObj != nil {
+						claimName := claimNameObj.(string)
+						volumeType := dereferencePVC(namespace, claimName)
+						volumeCount[volumeType]++
+					}
 				}
 			}
 		}
@@ -75,6 +98,22 @@ func printPodVolumes(podsJSON map[string]interface{}) map[string]uint {
 	}
 
 	return volumeCount
+}
+
+func dereferencePVC(pvcNamespace, pvcName string) string {
+	pvName, err := kubectlGetPVC(pvcNamespace, pvcName)
+	if err != nil {
+		log.Printf("failed to get PVC: %v", err)
+		return "failedToDerefPVC"
+	}
+	// fmt.Printf("PVC %s/%s is bound to PV %s\r\n", pvcNamespace, pvcName, pvName)
+	volumeType, getPVErr := kubectlGetPV(pvName)
+	if getPVErr != nil {
+		log.Printf("failed to get PV: %v", err)
+		return "failedToDerefPV"
+	}
+
+	return volumeType
 }
 
 func kubectlGetPods() (map[string]interface{}, error) {
@@ -103,6 +142,116 @@ func kubectlGetPods() (map[string]interface{}, error) {
 	// 	"\"kubectl get pods\" succeeded. Output: %q\r\n",
 	// 	parsedJson)
 	return parsedJson, nil
+}
+
+func kubectlGetPVC(namespace, name string) (string, error) {
+	// log.Printf("Attempting to fetch PVC namespace: %q name: %q\r\n", namespace, name)
+	// defer fmt.Println("------------")
+
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	cmdArgs := []string{
+		"get",
+		"pvc",
+		name,
+		"--namespace=" + namespace,
+		"-o=json"}
+	outputBytes, cmdErr := executeKubectlCmd(cmdArgs)
+	if cmdErr != nil {
+		log.Printf(
+			"\"kubectl get pvc %s --namespace=%s -o=json\" failed with %v\r\n",
+			name,
+			namespace,
+			cmdErr)
+		return "", cmdErr
+	}
+
+	parsedJson := make(map[string]interface{})
+	if err := json.Unmarshal(outputBytes, &parsedJson); err != nil {
+		return "", err
+	}
+
+	// log.Printf(
+	// 	"\"kubectl get pods\" succeeded. Output: %q\r\n",
+	// 	parsedJson)
+	// fmt.Printf("pvc: %q\r\n", parsedJson)
+
+	status := parsedJson["status"]
+	if status == nil {
+		return "", fmt.Errorf("Error PVC namespace: %q name: %q parsed JSON does not contain status\r\n", namespace, name)
+	}
+
+	phaseObj := status.(map[string]interface{})["phase"]
+	if phaseObj == nil {
+		return "", fmt.Errorf("Error PVC namespace: %q name: %q parsed JSON does not contain status.phase\r\n", namespace, name)
+	}
+
+	phase := phaseObj.(string)
+	if phase != "Bound" {
+		return "unboundPVC", nil
+	}
+
+	spec := parsedJson["spec"]
+	if spec == nil {
+		return "", fmt.Errorf("Error PVC namespace: %q name: %q parsed JSON does not contain spec\r\n", namespace, name)
+	}
+
+	pvNameObj := spec.(map[string]interface{})["volumeName"]
+	if pvNameObj == nil {
+		return "", fmt.Errorf("Error PVC namespace: %q name: %q parsed JSON does not contain spec.volumeName\r\n", namespace, name)
+	}
+
+	pvName := pvNameObj.(string)
+	return pvName, nil
+}
+
+func kubectlGetPV(name string) (string, error) {
+	// log.Printf("Attempting to fetch PV name: %q\r\n", name)
+	// defer fmt.Println("------------")
+
+	cmdArgs := []string{
+		"get",
+		"pv",
+		name,
+		"-o=json"}
+	outputBytes, cmdErr := executeKubectlCmd(cmdArgs)
+	if cmdErr != nil {
+		log.Printf(
+			"\"kubectl get pvc %s -o=json\" failed with %v\r\n",
+			name,
+			cmdErr)
+		return "", cmdErr
+	}
+
+	parsedJson := make(map[string]interface{})
+	if err := json.Unmarshal(outputBytes, &parsedJson); err != nil {
+		return "", err
+	}
+
+	spec := parsedJson["spec"]
+	if spec == nil {
+		return "", fmt.Errorf("Error PV name: %q parsed JSON does not contain spec\r\n", name)
+	}
+
+	for key, _ := range spec.(map[string]interface{}) {
+		if key == "capacity" {
+			continue
+		}
+		if key == "accessModes" {
+			continue
+		}
+		if key == "claimRef" {
+			continue
+		}
+		if key == "persistentVolumeReclaimPolicy" {
+			continue
+		}
+		return key, nil
+	}
+
+	return "", fmt.Errorf("Error PV name: %q parsed JSON does not contain a volume type: %v\r\n", parsedJson)
 }
 
 func executeKubectlCmd(cmdArgs []string) ([]byte, error) {
