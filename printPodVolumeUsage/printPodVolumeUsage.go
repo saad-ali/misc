@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+
+	"github.com/golang/glog"
 )
 
 const (
@@ -34,15 +36,27 @@ func main() {
 	// log.Println("  For each pod it will call kubectl describe to and compile a list of volume types used by the pod.")
 
 	// Create a new PD
-	podsJSON, _ := kubectlGetPods()
+	podsJSON, err := kubectlGetPods()
+	if err != nil {
+		glog.Fatalf("failed to get pods: %v", err)
+	}
 	printPodVolumes(podsJSON)
 }
 
 func printPodVolumes(podsJSON map[string]interface{}) map[string]uint {
 	volumeCount := make(map[string]uint)
+
 	for _, pod := range podsJSON["items"].([]interface{}) {
 		//log.Println("POD:")
-		for _, volume := range pod.(map[string]interface{})["spec"].(map[string]interface{})["volumes"].([]interface{}) {
+		spec := pod.(map[string]interface{})["spec"]
+		if spec == nil {
+			continue
+		}
+		volumes := spec.(map[string]interface{})["volumes"]
+		if volumes == nil {
+			continue
+		}
+		for _, volume := range volumes.([]interface{}) {
 			//log.Println("  Volume:")
 			for key, _ := range volume.(map[string]interface{}) {
 				if key != "name" {
